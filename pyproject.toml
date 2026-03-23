@@ -57,6 +57,11 @@ provider-path = "tools/metadata"
 provider = "dependencies"
 provider-path = "tools/metadata"
 
+[tool.scikit-build.install]
+# scikit-build-core auto-strips binaries in Release builds. PyTorch needs to
+# keep symbols (e.g. for torch.utils.cpp_extension, ABI checks in CI).
+strip = false
+
 [tool.scikit-build.wheel]
 # CMake install destinations (lib/, include/, share/cmake/) are relative to
 # CMAKE_INSTALL_PREFIX. This setting places them under torch/ in the wheel,
