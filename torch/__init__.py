@@ -54,6 +54,10 @@ def _patch_skbuild_editable_rebuild() -> None:
         if type(_finder).__name__ == "ScikitBuildRedirectingFinder" and getattr(
             _finder, "path", None
         ):
+            # At this point we know that _finder is the ScikitBuildRedirectingFinder,
+            # but we can't usefully cast, because that type is only injected
+            # for editable installs, hence we ignore the error.
+            # pyrefly: ignore[missing-attribute]
             _orig = _finder.rebuild
             _path = _finder.path
 
@@ -70,6 +74,7 @@ def _patch_skbuild_editable_rebuild() -> None:
                     filter(None, [os.environ.get(_MARKER, ""), _path])
                 )
 
+            # pyrefly: ignore[missing-attribute]
             _finder.rebuild = _rebuild_once
             break
 
@@ -423,6 +428,12 @@ def _load_global_deps() -> None:
             installed = distribution("torch").locate_file(
                 os.path.join("torch", "lib", lib_name)
             )
+            # The importlib metadata SimplePath protocol was missing the exists
+            # method in older versions; however, the actual Path implementation
+            # has it and newer versions of importlib metadata have added it to
+            # the protocol, making the following ignore unnecessary from
+            # importlib_metadata 7.0.1 and Python 3.13 onwards.
+            # pyrefly: ignore[missing-attribute]
             if installed.exists():
                 global_deps_lib_path = str(installed)
         except Exception:
