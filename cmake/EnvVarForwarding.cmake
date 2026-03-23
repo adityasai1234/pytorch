@@ -259,25 +259,8 @@ if(DEFINED ENV{BUILD_LIBTORCH_WHL} AND DEFINED ENV{BUILD_PYTHON_ONLY})
   endif()
 endif()
 
-# Build type logic previously in tools/setup_helpers/env.py.
-# CMAKE_BUILD_TYPE always takes precedence. If not set, check DEBUG and
-# REL_WITH_DEB_INFO env vars.
-if(NOT CMAKE_BUILD_TYPE AND NOT DEFINED ENV{CMAKE_BUILD_TYPE})
-  if(DEFINED ENV{DEBUG})
-    string(TOUPPER "$ENV{DEBUG}" _debug_val)
-    if(_debug_val MATCHES "^(ON|1|YES|TRUE|Y)$")
-      set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type" FORCE)
-    endif()
-  endif()
-  if(NOT CMAKE_BUILD_TYPE AND DEFINED ENV{REL_WITH_DEB_INFO})
-    string(TOUPPER "$ENV{REL_WITH_DEB_INFO}" _rwdi_val)
-    if(_rwdi_val MATCHES "^(ON|1|YES|TRUE|Y)$")
-      set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "Build type" FORCE)
-    endif()
-  endif()
-  if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
-  endif()
-elseif(DEFINED ENV{CMAKE_BUILD_TYPE} AND NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE "$ENV{CMAKE_BUILD_TYPE}" CACHE STRING "Build type" FORCE)
-endif()
+# Build type is now handled by scikit-build-core via pyproject.toml:
+#   build-type = "Release" (default)
+#   overrides for DEBUG -> Debug, REL_WITH_DEB_INFO -> RelWithDebInfo
+# scikit-build-core passes -DCMAKE_BUILD_TYPE on single-config generators
+# and --config on multi-config generators (Visual Studio).

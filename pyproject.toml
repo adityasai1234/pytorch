@@ -27,10 +27,19 @@ experimental = true
 build-dir = "build"
 
 [tool.scikit-build.cmake]
-# Build type is determined by cmake/EnvVarForwarding.cmake from DEBUG,
-# REL_WITH_DEB_INFO, or CMAKE_BUILD_TYPE env vars (defaulting to Release).
-# Setting to empty string tells scikit-build-core not to override it.
-build-type = ""
+# Default to Release. On multi-config generators (Visual Studio), this is
+# passed as --config to cmake --build and cmake --install, ensuring they
+# match. Overrides below handle DEBUG and REL_WITH_DEB_INFO env vars,
+# mirroring the old setup.py behavior.
+build-type = "Release"
+
+[[tool.scikit-build.overrides]]
+if.env.DEBUG = true
+cmake.build-type = "Debug"
+
+[[tool.scikit-build.overrides]]
+if.env.REL_WITH_DEB_INFO = true
+cmake.build-type = "RelWithDebInfo"
 
 # cmake.define is intentionally absent -- all BUILD_*/USE_* env vars and
 # additional passthrough variables are forwarded by cmake/EnvVarForwarding.cmake
