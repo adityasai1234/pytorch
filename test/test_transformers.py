@@ -17,7 +17,7 @@ from unittest.mock import patch, MagicMock, ANY
 import math
 import itertools
 import torch.optim as optim
-from torch.testing._internal.common_device_type import expectedFailureMPS, instantiate_device_type_tests, onlyCUDA, largeTensorTest
+from torch.testing._internal.common_device_type import expectedFailureMPS, instantiate_device_type_tests, onlyCUDA, largeTensorTest, skipXPUIf
 import torch.utils.cpp_extension
 from torch.testing._internal.common_nn import NNTestCase
 from torch.testing._internal.common_utils import (
@@ -55,6 +55,7 @@ from torch.testing._internal.common_cuda import (
     tf32_on_and_off,
     tf32_enabled,
 )
+from torch.testing._internal.common_xpu import PLATFORM_SUPPORTS_SYCLTLA
 
 if TEST_FAIRSEQ:
     import fairseq.models.transformer as fairseq_transformer
@@ -4576,7 +4577,7 @@ class TestSDPAXpuOnly(NNTestCase):
     Mostly migrate from TestSDPACudaOnly in test/test_transformers.py
     """
 
-    PLATFORM_SUPPORTS_XPU_FLASH_ATTENTION = torch.xpu.is_available() and torch._C._is_flash_attention_available()
+    PLATFORM_SUPPORTS_XPU_FLASH_ATTENTION = torch.xpu.is_available() and torch._C._is_flash_attention_available() and PLATFORM_SUPPORTS_SYCLTLA
 
     @parametrize("type", ["dense"])
     @parametrize("dropout", [0.0, 0.7])
@@ -5123,6 +5124,7 @@ class TestAttnBias(NNTestCase):
         "shape",
         [(16, 16, 128, 128, 16), (16, 16, 128, 256, 32), (16, 16, 256, 128, 32), (1, 1, 23, 56, 15)],
     )
+    @skipXPUIf(not PLATFORM_SUPPORTS_SYCLTLA, "XPU require SYCLTLA support for this test")
     def test_causal_variants(self, device, causal_variant: CausalVariant, shape: list[tuple[int]]):
         make_tensor = partial(
             torch.rand, device=device, dtype=torch.float16, requires_grad=True
@@ -5155,6 +5157,7 @@ class TestAttnBias(NNTestCase):
         [(16, 16, 128, 128, 16), (16, 16, 128, 256, 32), (16, 16, 256, 128, 32), (1, 1, 23, 56, 15)],
     )
     @skipIfTorchDynamo("This function already calls torch.compile.")
+    @skipXPUIf(not PLATFORM_SUPPORTS_SYCLTLA, "XPU require SYCLTLA support for this test")
     def test_causal_variants_compile(self, device, causal_variant: CausalVariant, shape: list[tuple[int]]):
         cnts = CompileCounterWithBackend("aot_eager")
         make_tensor = partial(
