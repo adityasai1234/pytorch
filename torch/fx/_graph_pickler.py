@@ -4,6 +4,7 @@ import importlib
 import io
 import itertools
 import pickle
+import weakref
 from abc import abstractmethod
 from collections.abc import Callable
 from typing import Any, NewType, TypeVar
@@ -147,6 +148,10 @@ class GraphPickler(pickle.Pickler):
             return _SymNodePickleData.reduce_helper(self, obj)
         elif isinstance(obj, torch._guards.TracingContext):
             return _TracingContextPickleData.reduce_helper(self, obj)
+        elif isinstance(obj, weakref.ref):
+            # Weak references (including KeyedRef from WeakValueDictionary)
+            # are ephemeral and cannot be pickled. Replace with None.
+            return (_unpickle_as_none, ())
         else:
             # We should never get a raw Node!
             if isinstance(obj, torch.fx.Node):

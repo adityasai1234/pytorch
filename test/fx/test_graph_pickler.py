@@ -924,6 +924,94 @@ class TestIgnoreRawNode(TestCase):
         self.assertIsNone(call_node.meta.get("raw_ref"))
 
 
+@unittest.skipUnless(HAS_DILL, "dill not available")
+class TestWeakrefPickle(TestCase):
+    """Tests that weakref objects are replaced with None during pickling."""
+
+    def setUp(self):
+        super().setUp()
+        import weakref
+
+        from torch._subclasses.fake_tensor import FakeTensorMode
+        from torch.fx._graph_pickler import GraphPickler, Options
+        from torch.fx.experimental.symbolic_shapes import ShapeEnv
+
+        self.weakref = weakref
+        self.GraphPickler = GraphPickler
+        self.Options = Options
+        self.fake_mode = FakeTensorMode(shape_env=ShapeEnv())
+
+    def _make_graph_with_weakref_in_meta(self, ref_obj):
+        """Return a graph module with a weakref stored in node metadata."""
+
+        class M(torch.nn.Module):
+            def forward(self, x):
+                return x + 1
+
+        gm = torch.fx.symbolic_trace(M())
+        call_node = next((n for n in gm.graph.nodes if n.op == "call_function"), None)
+        self.assertIsNotNone(call_node)
+        call_node.meta["weak_ref"] = ref_obj
+        return gm
+
+    def test_weakref_in_meta_is_replaced_with_none(self):
+        """A weakref.ref in node metadata should be pickled as None."""
+        target = {"key": "value"}  # prevent GC
+        weak = self.weakref.ref(target)
+        gm = self._make_graph_with_weakref_in_meta(weak)
+
+        options = self.Options(node_metadata_key_filter=None)
+        data = self.GraphPickler.dumps(gm, options)
+        restored = self.GraphPickler.loads(data, self.fake_mode)
+
+        self.assertIsInstance(restored, torch.fx.GraphModule)
+        call_node = next(
+            (n for n in restored.graph.nodes if n.op == "call_function"), None
+        )
+        self.assertIsNotNone(call_node)
+        self.assertIsNone(call_node.meta.get("weak_ref"))
+
+    def test_keyed_ref_in_meta_is_replaced_with_none(self):
+        """A weakref.KeyedRef (from WeakValueDictionary) should be pickled as None."""
+        wvd = self.weakref.WeakValueDictionary()
+        target = type("Dummy", (), {})()
+        wvd["k"] = target
+        # Extract the KeyedRef from the internal data dict
+        keyed_ref = wvd.data["k"]
+        self.assertIsInstance(keyed_ref, self.weakref.KeyedRef)
+
+        gm = self._make_graph_with_weakref_in_meta(keyed_ref)
+
+        options = self.Options(node_metadata_key_filter=None)
+        data = self.GraphPickler.dumps(gm, options)
+        restored = self.GraphPickler.loads(data, self.fake_mode)
+
+        self.assertIsInstance(restored, torch.fx.GraphModule)
+        call_node = next(
+            (n for n in restored.graph.nodes if n.op == "call_function"), None
+        )
+        self.assertIsNotNone(call_node)
+        self.assertIsNone(call_node.meta.get("weak_ref"))
+
+    def test_weakref_in_module_dict_is_replaced_with_none(self):
+        """A weakref stored in the graph module's __dict__ should be pickled as None."""
+
+        class M(torch.nn.Module):
+            def forward(self, x):
+                return x + 1
+
+        gm = torch.fx.symbolic_trace(M())
+        target = {"key": "value"}
+        gm._weak_cache = self.weakref.ref(target)
+
+        options = self.Options(node_metadata_key_filter=None)
+        data = self.GraphPickler.dumps(gm, options)
+        restored = self.GraphPickler.loads(data, self.fake_mode)
+
+        self.assertIsInstance(restored, torch.fx.GraphModule)
+        self.assertIsNone(restored._weak_cache)
+
+
 if __name__ == "__main__":
     from torch.testing._internal.common_utils import run_tests
 
