@@ -109,6 +109,15 @@ set(TORCH_PYTHON_LINK_FLAGS "")
 
 if(MSVC)
     string(APPEND TORCH_PYTHON_LINK_FLAGS " /NODEFAULTLIB:LIBCMT.LIB")
+    # Python headers use #pragma comment(lib, "pythonXX") which makes MSVC search
+    # for the library by bare name.  Add the directory so the linker can find it.
+    foreach(_pylib IN LISTS Python_LIBRARIES)
+      if(_pylib MATCHES "python[0-9].*\\.lib$")
+        get_filename_component(_pylib_dir "${_pylib}" DIRECTORY)
+        string(APPEND TORCH_PYTHON_LINK_FLAGS " /LIBPATH:\"${_pylib_dir}\"")
+        break()
+      endif()
+    endforeach()
     list(APPEND TORCH_PYTHON_LINK_LIBRARIES ${Python_LIBRARIES} onnx_library)
     if(NOT CMAKE_BUILD_TYPE MATCHES "Release")
       string(APPEND TORCH_PYTHON_LINK_FLAGS " /DEBUG:FULL")
@@ -461,7 +470,7 @@ if(${CMAKE_BUILD_TYPE} STREQUAL "RelWithAssert")
 endif()
 
 if(NOT TORCH_PYTHON_LINK_FLAGS STREQUAL "")
-    set_target_properties(torch_python PROPERTIES LINK_FLAGS ${TORCH_PYTHON_LINK_FLAGS})
+    set_target_properties(torch_python PROPERTIES LINK_FLAGS "${TORCH_PYTHON_LINK_FLAGS}")
 endif()
 
 install(TARGETS torch_python DESTINATION "${TORCH_INSTALL_LIB_DIR}")
