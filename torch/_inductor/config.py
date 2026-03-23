@@ -1123,6 +1123,14 @@ class aten_distributed_optimizations:
     # Prioritize bucketing during overlap scheduling by grouping candidates by bucket key
     prioritize_bucketing_during_scheduling: bool = True
 
+    # Bucket mode for collective bucketing in overlap scheduling
+    bucket_mode: Literal["default", "custom_ops", "custom_ops_multidtype"] | None = None
+
+    # When True, automatically remove extra deps that create cycles instead of
+    # raising an error.  Set this to True as a workaround if overlap scheduling
+    # fails with a cycle error, and file a bug so the root cause can be fixed.
+    overlap_scheduling_autofix_cycles: bool = False
+
 
 def parallel_compile_enabled_internally() -> bool:
     """
