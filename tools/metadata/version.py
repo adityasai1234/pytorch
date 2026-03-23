@@ -32,7 +32,8 @@ def dynamic_metadata(
         "generate_torch_version",
         Path(__file__).resolve().parent.parent / "generate_torch_version.py",
     )
-    assert spec is not None and spec.loader is not None
+    if spec is None or spec.loader is None:
+        raise ImportError("Could not load generate_torch_version.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod.get_torch_version()
