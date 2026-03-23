@@ -72,12 +72,12 @@ from ..source import (
 from ..utils import (
     check_constant_args,
     check_unspec_or_constant_args,
-    cmp_name_to_op_mapping,
     identity,
     is_function,
     is_wrapper_or_member_descriptor,
     istype,
     make_cell,
+    richcmp_op,
 )
 from .base import (
     AsPythonConstantNotImplementedError,
@@ -92,6 +92,7 @@ from .constant import (
     CONSTANT_VARIABLE_TRUE,
     ConstantVariable,
 )
+from .object_protocol import python_constant_richcompare_impl
 from .user_defined import UserDefinedObjectVariable
 
 
@@ -422,6 +423,15 @@ class BaseUserFunctionVariable(VariableTracker):
             return self.get_dict_vt(tx).call_method(tx, "__delitem__", list(args), {})
         return super().call_method(tx, name, list(args), kwargs)
 
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: VariableTracker,
+        op: str,
+    ) -> VariableTracker:
+        # CPython: functions use identity comparison (object_richcompare)
+        return ConstantVariable.create(NotImplemented)
+
     def get_filename(self) -> str:
         return self.get_code().co_filename
 
@@ -592,6 +602,8 @@ class UserFunctionVariable(BaseUserFunctionVariable):
             return self.fn
         return super().get_real_python_backed_value()
 
+    richcompare_impl = python_constant_richcompare_impl
+
     def self_args(self) -> list[VariableTracker]:
         return []
 
@@ -682,7 +694,7 @@ class UserFunctionVariable(BaseUserFunctionVariable):
     def var_getattr(self, tx: "InstructionTranslator", name: str) -> VariableTracker:
         if name == "__dict__":
             return super().var_getattr(tx, name)
-        elif name in cmp_name_to_op_mapping:
+        elif name in richcmp_op:
             return variables.GetAttrVariable(self, name)
         source = self.get_source()
         return fn_var_getattr(tx, self.fn, source, name)
@@ -1927,7 +1939,7 @@ class NestedUserFunctionVariable(BaseUserFunctionVariable):
         if name == "__defaults__":
             d = getattr(self, "defaults", None)
             return d.as_python_constant() if d else ConstantVariable.create(None)
-        elif name in cmp_name_to_op_mapping:
+        elif name in richcmp_op:
             return variables.GetAttrVariable(self, name)
         else:
             return super().var_getattr(tx, name)
@@ -2116,6 +2128,8 @@ class SkipFunctionVariable(VariableTracker):
 
     def get_real_python_backed_value(self) -> Any:
         return self.value
+
+    richcompare_impl = python_constant_richcompare_impl
 
     @classmethod
     def create_with_source(cls, value: Any, source: Source) -> "SkipFunctionVariable":
@@ -2319,7 +2333,7 @@ class SkipFunctionVariable(VariableTracker):
         return VariableTracker.build(tx, hasattr(self.value, name))
 
     def var_getattr(self, tx: "InstructionTranslator", name: str) -> VariableTracker:
-        if name in cmp_name_to_op_mapping:
+        if name in richcmp_op:
             return variables.GetAttrVariable(self, name)
 
         return fn_var_getattr(tx, self.value, self.source, name)
@@ -2775,11 +2789,11 @@ class FunctoolsPartialVariable(VariableTracker):
         if name == "func":
             return self.func
         if name == "args":
-            return variables.ListVariable(self.args, source=source)
+            return variables.TupleVariable(self.args, source=source)
         if name == "keywords":
             items = {VariableTracker.build(tx, k): v for k, v in self.keywords.items()}
             return variables.ConstDictVariable(items, source=source)
-        if name in cmp_name_to_op_mapping:
+        if name in richcmp_op:
             return variables.GetAttrVariable(self, name)
         raise_observed_exception(AttributeError, tx)
 

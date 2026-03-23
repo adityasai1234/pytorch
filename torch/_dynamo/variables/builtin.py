@@ -65,7 +65,6 @@ from ..utils import (
     check_numpy_ndarray_args,
     check_unspec_or_constant_args,
     check_unspec_python_args,
-    cmp_name_to_op_mapping,
     dict_methods,
     extract_fake_example_value,
     frozenset_methods,
@@ -77,6 +76,7 @@ from ..utils import (
     numpy_operator_wrapper,
     proxy_args_kwargs,
     raise_args_mismatch,
+    richcmp_op,
     set_methods,
     str_methods,
     tensortype_to_dtype,
@@ -774,14 +774,30 @@ class BuiltinVariable(VariableTracker):
                     ]
                 )
 
-                def handler(
-                    tx: "InstructionTranslator", a: VariableTracker, b: VariableTracker
-                ) -> VariableTracker:
-                    return tx.inline_user_function_return(
-                        VariableTracker.build(tx, polyfill_fn_mapping[op]), [a, b], {}
-                    )
+                # Map operator function → dunder name (e.g. operator.eq → "__eq__")
+                op_to_dunder = {v: k for k, v in richcmp_op.items()}
+                dunder_op = op_to_dunder[op]
 
-                result.append(((VariableTracker, VariableTracker), handler))
+                def make_richcompare_handler(
+                    dunder: str,
+                ) -> _HandlerCallback:
+                    def handler(
+                        tx: "InstructionTranslator",
+                        a: VariableTracker,
+                        b: VariableTracker,
+                    ) -> VariableTracker:
+                        from .object_protocol import generic_richcompare
+
+                        return generic_richcompare(tx, a, b, dunder)
+
+                    return handler
+
+                result.append(
+                    (
+                        (VariableTracker, VariableTracker),
+                        make_richcompare_handler(dunder_op),
+                    )
+                )
                 return result
 
             result = [((ConstantVariable, ConstantVariable), compare_by_value)]
@@ -2715,7 +2731,7 @@ class BuiltinVariable(VariableTracker):
                 member, (torch._ops.OpOverloadPacket, torch._ops.OpOverload)
             ) and torch._dynamo.trace_rules.is_aten_op_or_tensor_method(member):
                 return variables.TorchInGraphFunctionVariable(member, source=source)
-            elif name in cmp_name_to_op_mapping:
+            elif name in richcmp_op:
                 return variables.GetAttrVariable(obj, name, source=source)
             else:
                 return None
@@ -3325,6 +3341,16 @@ class BuiltinVariable(VariableTracker):
 
     def is_python_equal(self, other: object) -> bool:
         return isinstance(other, variables.BuiltinVariable) and self.fn is other.fn
+
+    def richcompare_impl(
+        self,
+        tx: "InstructionTranslator",
+        other: VariableTracker,
+        op: str,
+    ) -> VariableTracker:
+        from .object_protocol import python_constant_richcompare_impl
+
+        return python_constant_richcompare_impl(self, tx, other, op)
 
 
 @contextlib.contextmanager
