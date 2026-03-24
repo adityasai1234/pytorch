@@ -4373,7 +4373,7 @@ class Scheduler:
             min_choice: ir.ChoiceCaller | None = None
             if not get_choice_timings_async:
                 # Eagerly compile and benchmark non-template nodes
-                choice_timings = multi_node.choice_timings()
+                choice_timings = multi_node.choice_timings()  # @warrdeng: we might need to modify this. currently this is benchmarking on all unfused kernels
                 min_choice, ms1 = multi_node.get_min_choice()
                 choice_timings_iter = sorted(
                     choice_timings.items(), key=operator.itemgetter(1)
@@ -4419,11 +4419,16 @@ class Scheduler:
                     continue
 
                 if bench_epilogue and unfused_time >= ms1 + ms2:
-                    break
+                    # @warrdeng: we want to benchmark all configs, regardless of unfused ranking order
+                    if not config.autotune_gemm_at_epilogue_fusion_time:
+                        break
 
                 triton_choices += 1
-                if triton_choices > config.max_epilogue_benchmarked_choices:
-                    break
+                if (
+                    triton_choices > config.max_epilogue_benchmarked_choices
+                ):  # @warrdeng: we want to try all configs
+                    if not config.autotune_gemm_at_epilogue_fusion_time:
+                        break
 
                 with multi_node.swap_as_triton_caller(choice):
                     try:
