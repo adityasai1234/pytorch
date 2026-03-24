@@ -55,6 +55,7 @@ def normal(
     std: float = 1.0,
     dtype: torch.dtype | None = None,
     device: torch.device | str | None = None,
+    portable: bool = True,
 ) -> torch.Tensor:
     if len(shape) == 1 and isinstance(shape[0], Sequence):
         shape = tuple(shape[0])
@@ -63,7 +64,7 @@ def normal(
     if device is None:
         device = key.device
     result = torch.empty(shape, dtype=dtype, device=device)
-    return torch.ops.aten._philox_normal_(result, key, mean, std)
+    return torch.ops.aten._philox_normal_(result, key, mean, std, portable)
 
 
 def uniform(
@@ -73,6 +74,7 @@ def uniform(
     high: float = 1.0,
     dtype: torch.dtype | None = None,
     device: torch.device | str | None = None,
+    portable: bool = True,
 ) -> torch.Tensor:
     if len(shape) == 1 and isinstance(shape[0], Sequence):
         shape = tuple(shape[0])
@@ -81,7 +83,7 @@ def uniform(
     if device is None:
         device = key.device
     result = torch.empty(shape, dtype=dtype, device=device)
-    return torch.ops.aten._philox_uniform_(result, key, low, high)
+    return torch.ops.aten._philox_uniform_(result, key, low, high, portable)
 
 
 def set_rng_state(new_state: torch.Tensor) -> None:
