@@ -3883,6 +3883,111 @@ Tensor& linalg_solve_triangular_out(
   // and B are F-ready and not A.is_neg() (which happens almost always in practice).
   // When called as f(A, B, out=B) in most practical cases it'll perform no copies.
 
+  // Some definitions:
+  // (A, B) := X denotes the solution to the system in question.
+  // X* := X.conj().
+
+  bool out_fully_owned = false;
+  if (out.numel() == 0) {
+    // Empty implies full ownership of out.
+    // This means we can alter its stride structure and play transposition tricks.
+    out_fully_owned = true;
+  } else {
+    TORCH_CHECK(
+      out.sizes() == B_.sizes(),
+      "torch.linalg.solve_triangular: ",
+      "expected `out`.shape=", B_.sizes(), ", but got ", out.sizes(), " instead"
+    );
+  }
+
+  // Prepare A to be BLAS-compliant.
+  // NOTE: mem overlaps are fine as long as either cols or rows are contiguous.
+  // FIXME: batch overlaps are permissible, but the kernel loops over the batch dims,
+  // so the batch dims are being materialized.
+  // This behavior is inhereted from the previous imlementations.
+  const auto pA = can_flatten_batch_dims(A_) && (A_.stride(-2) == 1 || A_.stride(-1) == 1)
+    ? c10::MaybeOwned<Tensor>::borrowed(A_)
+    : c10::MaybeOwned<Tensor>::owned(cloneMatrix(A_));
+
+  // NOTE: modifes B in-place
+  const auto solve_kernel = [&left, &upper, &unitriangular](
+    const Tensor& A,
+    const Tensor& B,
+    TransposeType trans = TransposeType::NoTranspose
+  ) {
+    triangular_solve_stub(
+      A.device().type(), A, B,
+      left,
+      upper,
+      trans,
+      unitriangular
+    );
+  };
+
+  // Run solve_kernel on
+  // (op(A), B) if A is col-major, or
+  // (op(A)^T, B^T), otherwise.
+  // *^T is done on the strides before the kernel call,
+  // op(*) is done in the kernel.
+  // It is assumed that A and B have the same memory layout.
+  const auto solve = [&left, &upper, &unitriangular, &solve_kernel](
+    const Tensor& A,
+    const Tensor& B,
+    TransposeType trans = TransposeType::NoTranspose
+  ) {
+    auto pA = c10::MaybeOwned<Tensor>::borrowed(A);
+    auto pB = c10::MaybeOwned<Tensor>::borrowed(B);
+
+    const auto is_A_col_major = A.stride(-2) == 1;
+    if (!is_A_col_major) {
+      // Transpose the problem
+      left = !left;
+      upper = !upper;
+      pA = c10::MaybeOwned<Tensor>::owned(pA->mH());
+      pB = c10::MaybeOwned<Tensor>::owned(pB->mH());
+    }
+
+    solve_kernel(*pA, *pB, trans);
+  };
+
+  // Owned out implies we are safe to alter strides and neg/conj flags.
+  // B is copied into the resized out such that mem_layout(A) == mem_layout(out).
+  // Copying of B also resolves neg/conj flags in B.
+  // Then we solve the original problem if A is col-major, and a transposed one otherwise.
+  // The result will inherit neg/conj flags from A.
+  // NO COPY of A is done.
+  const auto solve_with_owned_out = [&left, &upper, &unitriangular, &solve](
+    const Tensor& A,
+    const Tensor& B,
+    Tensor& out
+  ) {
+    const auto is_A_col_major = A.stride(-2) == 1;
+    if (is_A_col_major) {
+      // A is col-major -> resize out to be col-major and solve the original problem
+      out.resize_(B.transpose(-2, -1).sizes(), MemoryFormat::Contiguous);
+      out.transpose_(-2, -1);
+    } else {
+      // A is row-major -> risize out to be row-major and solve the transposed problem
+      out.resize_(B.sizes(), MemoryFormat::Contiguous);
+    }
+
+    // X = (A*, B) = (A, B*)*, so
+    // A.is_conj() -> out.copy_(B.conj()) -> solve -> out._set_conj(true)
+    out.copy_(A.is_conj() ? B.conj() : B);
+
+    // Solve the problem
+    solve(A, out);
+
+    // Set the flags
+    out._set_neg(A.is_neg());
+    out._set_conj(A.is_conj());
+  };
+
+  if (out_fully_owned) {
+    solve_with_owned_out(*pA, B_, out);
+    return out;
+  }
+
   const bool avoid_copy_A = A_.transpose(-2, -1).is_contiguous() && A_.is_conj();
   if (avoid_copy_A) {
     // See Note: [Cloning A]
